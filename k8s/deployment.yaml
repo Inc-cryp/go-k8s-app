@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-k8s-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: go-k8s-app
+  template:
+    metadata:
+      labels:
+        app: go-k8s-app
+    spec:
+      containers:
+        - name: go-k8s-app
+          image: Inc-cryp/go-k8s-app:v1
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: go-k8s-config
+            - secretRef:
+                name: go-k8s-secret
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5

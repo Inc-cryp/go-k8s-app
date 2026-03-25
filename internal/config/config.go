@@ -1,0 +1,27 @@
+package config
+
+import "os"
+
+type Config struct {
+	AppName    string
+	AppVersion string
+	Environment string
+	APIKey     string
+}
+
+func Load() Config {
+	return Config{
+		AppName:     getEnv("APP_NAME", "go-k8s-app"),
+		AppVersion:  getEnv("APP_VERSION", "v1.0.0"),
+		Environment: getEnv("APP_ENV", "development"),
+		APIKey:      getEnv("API_KEY", "default-secret"),
+	}
+}
+
+func getEnv(key, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
