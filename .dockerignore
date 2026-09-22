@@ -1,5 +1,15 @@
 .git
+.github
 .gitignore
 Dockerfile
+docker-compose.yml
 README.md
+LICENSE
 k8s
+
+# Local build output and test artifacts, none of which belong in the image.
+/server
+coverage.out
+*.test
+*.out
+*.prof
