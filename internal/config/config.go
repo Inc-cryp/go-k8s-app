@@ -3,10 +3,10 @@ package config
 import "os"
 
 type Config struct {
-	AppName    string
-	AppVersion string
+	AppName     string
+	AppVersion  string
 	Environment string
-	APIKey     string
+	APIKey      string
 }
 
 func Load() Config {
