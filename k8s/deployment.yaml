@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: go-k8s-app
+  labels:
+    app: go-k8s-app
 spec:
   replicas: 3
   selector:
@@ -12,11 +14,24 @@ spec:
       labels:
         app: go-k8s-app
     spec:
+      # Must stay above the server's own 10s drain window so in-flight
+      # requests finish before the kubelet escalates SIGTERM to SIGKILL.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
       containers:
         - name: go-k8s-app
-          image: Inc-cryp/go-k8s-app:v1
+          # Placeholder: push the image to a registry you control and replace
+          # this. Note that the previous value (Inc-cryp/go-k8s-app:v1) was not
+          # a valid reference at all: Docker parses an uppercase first path
+          # segment as a registry hostname, so it resolved to host "Inc-cryp"
+          # and could never be pulled.
+          image: ghcr.io/inc-cryp/go-k8s-app:v1
+          imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8080
+            - name: http
+              containerPort: 8080
           envFrom:
             - configMapRef:
                 name: go-k8s-config
@@ -32,12 +47,18 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 8080
+              port: http
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
-              port: 8080
+              port: http
             initialDelaySeconds: 3
             periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

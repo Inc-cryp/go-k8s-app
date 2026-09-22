@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Read-only: this workflow only builds and tests.
+permissions:
+  contents: read
+
+# Supersede an in-progress run when the same ref is pushed again.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep in sync with the `go` directive in go.mod and the builder image
+  # tag in the Dockerfile. The official golang images set
+  # GOTOOLCHAIN=local, so a mismatch here and in the Dockerfile is the
+  # difference between "builds" and "fails".
+  GO_VERSION: "1.25"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          # The module has no dependencies, so there is no cache to restore.
+          cache: false
+      - name: Check formatting
+        run: make fmt-check
+      - name: Vet
+        run: make vet
+
+  test:
+    name: Test (race)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Test with race detector and coverage
+        run: make cover
+
+  build:
+    name: Build and smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Build and probe the running server
+        run: make smoke

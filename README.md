@@ -1,23 +1,24 @@
 # Go Kubernetes App
 
-A simple production-style Go web service built with Go, containerized using Docker, and deployed with Kubernetes.
+A small production-style Go web service: containerized with a multi-stage
+Docker build and deployed to Kubernetes.
 
 ## Tech Stack
 
-- Go
+- Go (standard library only, no external dependencies)
 - Docker
 - Kubernetes
 
 ## Features
 
-- Simple HTTP API
+- JSON HTTP API with a documented 404 for unknown paths
 - Health check endpoint
 - Version endpoint
 - Environment-based configuration
-- Multi-stage Docker build
-- Kubernetes Deployment and Service
-- ConfigMap integration
-- Secret integration
+- Graceful shutdown on SIGINT/SIGTERM
+- Multi-stage Docker build producing a static, non-root container
+- Kubernetes Deployment, Service, ConfigMap and Secret
+- Unit tests and a GitHub Actions pipeline
 
 ## Project Structure
 
@@ -25,15 +26,15 @@ A simple production-style Go web service built with Go, containerized using Dock
 go-k8s-app/
 ├── cmd/
 │   └── server/
-│       └── main.go
+│       └── main.go          # entrypoint: routing, timeouts, graceful shutdown
 │
 ├── internal/
 │   ├── config/
-│   │   └── config.go
+│   │   └── config.go        # environment-based configuration
 │   ├── handler/
-│   │   └── handler.go
+│   │   └── handler.go       # HTTP handlers
 │   └── response/
-│       └── response.go
+│       └── response.go      # JSON response helper
 │
 ├── k8s/
 │   ├── configmap.yaml
@@ -44,11 +45,15 @@ go-k8s-app/
 ├── .dockerignore
 ├── .gitignore
 ├── Dockerfile
+├── Makefile
 ├── go.mod
 └── README.md
 ```
 
 ## API Endpoints
+
+Every response is JSON. Any path that is not one of the three below returns
+`404` with `{"error":"not found","path":"..."}`.
 
 ### `GET /`
 
@@ -68,7 +73,7 @@ Returns a simple welcome message.
 
 ### `GET /health`
 
-Used for health checking.
+Used by the liveness and readiness probes.
 
 #### Example Response
 
@@ -96,12 +101,31 @@ Returns application version information.
 
 ---
 
+## Configuration
+
+| Variable      | Description                          | Default         |
+| ------------- | ------------------------------------ | --------------- |
+| `APP_NAME`    | Application name                     | `go-k8s-app`    |
+| `APP_VERSION` | Application version                  | `v1.0.0`        |
+| `APP_ENV`     | Running environment                  | `development`   |
+| `API_KEY`     | Example secret key                   | `default-secret`|
+| `ADDR`        | Listen address                       | `:8080`         |
+
+An empty variable is treated as unset, which matters because Kubernetes
+delivers a missing ConfigMap key as an empty string.
+
+---
+
 ## Run Locally
 
-You can run the application locally by passing environment variables directly:
+```bash
+make run
+```
+
+Or with explicit values:
 
 ```bash
-APP_NAME=my-app APP_VERSION=v2.1.0 APP_ENV=local API_KEY=test-key go run ./cmd/server
+APP_NAME=my-app APP_VERSION=v2.1.0 APP_ENV=local ADDR=:8080 go run ./cmd/server
 ```
 
 Then test it:
@@ -112,13 +136,38 @@ curl localhost:8080/health
 curl localhost:8080/version
 ```
 
+The server logs `shutdown signal received, draining connections` and exits
+with status 0 on `Ctrl-C`.
+
+---
+
+## Make Targets
+
+Run `make help` for the full list.
+
+| Target         | Action                                            |
+| -------------- | ------------------------------------------------- |
+| `make check`   | Everything CI runs: formatting, vet, race tests    |
+| `make test`    | Run the test suite                                |
+| `make cover`   | Race tests with a coverage summary                |
+| `make build`   | Build the static server binary                    |
+| `make smoke`   | Build and probe the running server's endpoints    |
+| `make docker-build` | Build the container image                    |
+| `make k8s-dry-run`  | Validate the manifests against the cluster    |
+
 ---
 
 ## Build Docker Image
 
 ```bash
-docker build -t yourusername/go-k8s-app:v1 .
+make docker-build
+# or
+docker build -t go-k8s-app:v1 .
 ```
+
+The builder stage is pinned to the Go release in `go.mod`. The official
+`golang` images set `GOTOOLCHAIN=local`, so that image's Go is final: pinning
+an older release fails the build rather than downloading a newer toolchain.
 
 ---
 
@@ -130,22 +179,22 @@ docker run -p 8080:8080 \
   -e APP_VERSION=v1.0.1 \
   -e APP_ENV=docker \
   -e API_KEY=secret123 \
-  yourusername/go-k8s-app:v1
+  go-k8s-app:v1
 ```
 
-Then test it:
-
-```bash
-curl localhost:8080/
-curl localhost:8080/health
-curl localhost:8080/version
-```
+The container runs as a non-root user and includes a `HEALTHCHECK` that
+probes `/health`.
 
 ---
 
 ## Deploy to Kubernetes
 
-Apply all Kubernetes manifests:
+Push the image to a registry you control and update `image:` in
+`k8s/deployment.yaml` first — it ships with a placeholder value on purpose.
+An image reference whose first path segment contains uppercase letters is
+parsed as a registry hostname, so `Inc-cryp/go-k8s-app:v1` is not pullable.
+
+Then apply the manifests:
 
 ```bash
 kubectl apply -f k8s/
@@ -164,55 +213,29 @@ kubectl get secret
 
 ## Kubernetes Resources Used
 
-This project uses the following Kubernetes objects:
-
-- Deployment
-- Service
+- Deployment (3 replicas, liveness and readiness probes, non-root,
+  `terminationGracePeriodSeconds: 30` to cover the app's 10s drain)
+- Service (NodePort)
 - ConfigMap
 - Secret
 
 ---
 
-## Environment Variables
-
-The application supports the following environment variables:
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `APP_NAME` | Application name | `go-k8s-app` |
-| `APP_VERSION` | Application version | `v1.0.0` |
-| `APP_ENV` | Running environment | `production` |
-| `API_KEY` | Example secret key | `super-secret-api-key` |
-
----
-
 ## Notes
 
-This repository uses **demo-only configuration values and secrets** for educational and portfolio purposes.
+This repository uses **demo-only configuration values and secrets** for
+educational and portfolio purposes.
 
 Do **not** store real production secrets in Git repositories.
 
 ---
 
-## Learning Goals
+## Testing
 
-This project was built to practice:
+```bash
+make check
+```
 
-- Structuring a Go backend service
-- Writing a production-style Dockerfile
-- Understanding Docker image build flow
-- Deploying an application to Kubernetes
-- Managing application configuration with ConfigMap and Secret
-
----
-
-## Future Improvements
-
-Possible next improvements for this project:
-
-- Add CI/CD with GitHub Actions
-- Add Ingress
-- Add Horizontal Pod Autoscaler (HPA)
-- Add graceful shutdown
-- Add structured logging
-- Add unit tests
+Covers the configuration loader, all four handlers, the JSON response helper
+and the route table — including a regression test asserting that unknown
+paths return 404 instead of falling through to the home handler.
